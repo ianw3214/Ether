@@ -5,10 +5,22 @@
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
-void tick()
+void engine_init()
+{
+    std::cout << "Engine Initialization\n";
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_tick(float dt)
 {
     static int frame = 0;
-    std::cout << "Frame " << frame++ << '\n';
+    std::cout << "Frame " << frame++ << " | dt = " << dt * 1000.f << "ms\n";
+}
+
+EMSCRIPTEN_KEEPALIVE
+void engine_shutdown()
+{
+    std::cout << "Engine Shutdown\n";
 }
 
 }

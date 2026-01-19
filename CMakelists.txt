@@ -9,13 +9,19 @@ add_executable(Ether src/main.cpp)
 # Emscripten specific settings
 if (EMSCRIPTEN)
     set_target_properties(Ether PROPERTIES
-        OUTPUT_NAME "index"
-        SUFFIX ".html")
+        OUTPUT_NAME "engine"
+        SUFFIX ".js")
 
+    # Why is leading underscore necessary for exported funcs?
     target_link_options(Ether PRIVATE
         "-sASSERTIONS=1"
         "-sSAFE_HEAP=1"
         "-sALLOW_MEMORY_GROWTH=1"
-        "-sEXPORTED_FUNCTIONS=_main,_tick"
-        "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap")
+        "-sMODULARIZE=1"
+        "-sEXPORT_ES6=1"
+        "-sENVIRONMENT=web"
+        # "-sVERBOSE=1"
+        "-sEXPORTED_FUNCTIONS=_main,_engine_init,_engine_tick,_engine_shutdown"
+        # "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap"
+    )
 endif()
