@@ -20,7 +20,7 @@ function frame(time) {
 
 async function start() {
     const gpu = await createWebGPUContext(canvas);
-    renderer = new Renderer(gpu);
+    renderer = await Renderer.create(gpu);
 
     engine = await createModule();
     engine._engine_init();
