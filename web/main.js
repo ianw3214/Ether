@@ -1,7 +1,10 @@
 "use strict";
 
 // Constants
+const UPDATE_INVERVAL = 200;
 const GRID_SIZE = 32;
+
+let step = 0;
 
 // Initialization
 const canvas = document.querySelector("canvas");
@@ -55,21 +58,38 @@ device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
 const cellShaderModule = device.createShaderModule({
   label : "Cell shader",
   code : `
+    struct VertexInput {
+      @location(0) pos : vec2f,
+      @builtin(instance_index) instance : u32,
+    };
+
+    struct VertexOutput {
+      @builtin(position) pos : vec4f,
+      @location(0) cell : vec2f,
+    };
+
     @group(0) @binding(0) var<uniform> grid : vec2f;
+    @group(0) @binding(1) var<storage> cellState: array<u32>;
 
     @vertex
-    fn vertexMain(@location(0) pos : vec2f, @builtin(instance_index) instance : u32)
-        -> @builtin(position) vec4f {
-      let i = f32(instance);
+    fn vertexMain(input : VertexInput) -> VertexOutput {
+      let i = f32(input.instance);
       let cell = vec2f(i % grid.x, floor(i / grid.x));
+      let state = f32(cellState[input.instance]);
+
       let cellOffset = cell / grid * 2;
-      let gridPos = (pos + 1) / grid - 1 + cellOffset; 
-      return vec4f(gridPos, 0, 1);
+      let gridPos = (input.pos * state + 1) / grid - 1 + cellOffset; 
+
+      var output : VertexOutput;
+      output.pos = vec4f(gridPos, 0, 1);
+      output.cell = cell;
+      return output;
     }
 
     @fragment
-    fn fragmentMain() -> @location(0) vec4f {
-      return vec4f(1, 0, 0, 1);
+    fn fragmentMain(input : VertexOutput) -> @location(0) vec4f {
+      let c = input.cell / grid;
+      return vec4f(c, 1 - c.x, 1);
     }
   `
 })
@@ -90,33 +110,85 @@ const cellPipeline = device.createRenderPipeline({
   }
 });
 
-const bindGroup = device.createBindGroup({
-  label : "Cell renderer bind group",
-  layout : cellPipeline.getBindGroupLayout(0),
-  entries : [{
-    binding : 0,
-    resource : { buffer : uniformBuffer }
-  }]
-});
+// Create an array representing the active state of each cell
+const cellStateArray = new Uint32Array(GRID_SIZE * GRID_SIZE);
 
-// Clear the screen
-const encoder = device.createCommandEncoder();
-const pass = encoder.beginRenderPass({
-  colorAttachments: [{
-    view: context.getCurrentTexture().createView(),
-    loadOp: "clear",
-    clearValue: { r: 0.6, g: 0, b: 0.4, a: 1 }, // New line
-    storeOp: "store",
-  }],
-});
+// Create a storage buffer to hold the cell state
+const cellStateStorage = [
+  device.createBuffer({
+    label: "Cell State A",
+    size: cellStateArray.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  }),
+  device.createBuffer({
+    label: "Cell State B",
+    size: cellStateArray.byteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+  })
+];
 
-// Draw a square
-pass.setPipeline(cellPipeline);
-pass.setVertexBuffer(0, vertexBuffer);
-pass.setBindGroup(0, bindGroup);
+// Mark every third cell of the grid as active
+for (let i = 0; i < cellStateArray.length; i += 3)
+{
+  cellStateArray[i] = 1;
+}
+device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
 
-pass.draw(vertices.length / 2, GRID_SIZE * GRID_SIZE);
+for (let i = 0; i < cellStateArray.length; i++)
+{
+  cellStateArray[i] = i % 2;
+}
+device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
 
-pass.end();
-// Finish the command buffer and immediately submit it.
-device.queue.submit([encoder.finish()]);
+const bindGroups = [
+  device.createBindGroup({
+    label : "Cell renderer bind group A",
+    layout : cellPipeline.getBindGroupLayout(0),
+    entries : [{
+      binding : 0,
+      resource : { buffer : uniformBuffer }
+    }, {
+      binding : 1,
+      resource : { buffer : cellStateStorage[0] }
+    }]
+  }),
+  device.createBindGroup({
+    label : "Cell renderer bind group B",
+    layout : cellPipeline.getBindGroupLayout(0),
+    entries : [{
+      binding : 0,
+      resource : { buffer : uniformBuffer }
+    }, {
+      binding : 1,
+      resource : { buffer : cellStateStorage[1] }
+    }]
+  })
+];
+
+function updateGrid() {
+  step++;
+
+  // Clear the screen
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [{
+      view: context.getCurrentTexture().createView(),
+      loadOp: "clear",
+      clearValue: { r: 0.6, g: 0, b: 0.4, a: 1 }, // New line
+      storeOp: "store",
+    }],
+  });
+
+  // Draw a square
+  pass.setPipeline(cellPipeline);
+  pass.setVertexBuffer(0, vertexBuffer);
+  pass.setBindGroup(0, bindGroups[step % 2]);
+
+  pass.draw(vertices.length / 2, GRID_SIZE * GRID_SIZE);
+
+  pass.end();
+  // Finish the command buffer and immediately submit it.
+  device.queue.submit([encoder.finish()]);
+}
+
+setInterval(updateGrid, UPDATE_INVERVAL);
