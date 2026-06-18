@@ -3,6 +3,7 @@
 // Constants
 const UPDATE_INVERVAL = 200;
 const GRID_SIZE = 32;
+const WORKGROUP_SIZE = 8;
 
 let step = 0;
 
@@ -93,22 +94,6 @@ const cellShaderModule = device.createShaderModule({
     }
   `
 })
-const cellPipeline = device.createRenderPipeline({
-  label : "Cell pipeline",
-  layout : "auto",
-  vertex : {
-    module : cellShaderModule,
-    entryPoint : "vertexMain",
-    buffers : [vertexBufferLayout]
-  },
-  fragment : {
-    module : cellShaderModule,
-    entryPoint : "fragmentMain",
-    targets : [{
-      format : canvasFormat
-    }]
-  }
-});
 
 // Create an array representing the active state of each cell
 const cellStateArray = new Uint32Array(GRID_SIZE * GRID_SIZE);
@@ -133,43 +118,124 @@ for (let i = 0; i < cellStateArray.length; i += 3)
   cellStateArray[i] = 1;
 }
 device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
-
-for (let i = 0; i < cellStateArray.length; i++)
-{
-  cellStateArray[i] = i % 2;
-}
 device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
+
+const simulationShaderModule = device.createShaderModule({
+  label: "Game of Life simulation Shader",
+  code: `
+    @group(0) @binding(0) var<uniform> grid: vec2f;
+
+    @group(0) @binding(1) var<storage> cellStateIn: array<u32>;
+    @group(0) @binding(2) var<storage, read_write> cellStateOut: array<u32>;
+
+    fn cellIndex(cell: vec2u) -> u32 {
+      return cell.y * u32(grid.x) + cell.x;
+    }
+
+    @compute
+    @workgroup_size(${WORKGROUP_SIZE}, ${WORKGROUP_SIZE})
+    fn computeMain(@builtin(global_invocation_id) cell: vec3u) {
+      if (cellStateIn[cellIndex(cell.xy)] == 1) {
+        cellStateOut[cellIndex(cell.xy)] = 0;
+      } else {
+        cellStateOut[cellIndex(cell.xy)] = 1;  
+      }
+    }
+  `
+});
+
+const bindGroupLayout = device.createBindGroupLayout({
+  label: "Cell Bind Group Layout",
+  entries: [{
+    binding: 0,
+    visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+    buffer: {}
+  }, {
+    binding: 1,
+    visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
+    buffer: { type: "read-only-storage" }
+  }, {
+    binding: 2,
+    visibility: GPUShaderStage.COMPUTE,
+    buffer: { type: "storage" }
+  }]
+});
 
 const bindGroups = [
   device.createBindGroup({
     label : "Cell renderer bind group A",
-    layout : cellPipeline.getBindGroupLayout(0),
+    layout : bindGroupLayout,
     entries : [{
       binding : 0,
       resource : { buffer : uniformBuffer }
     }, {
       binding : 1,
       resource : { buffer : cellStateStorage[0] }
+    }, {
+      binding: 2,
+      resource : { buffer : cellStateStorage[1] }
     }]
   }),
   device.createBindGroup({
     label : "Cell renderer bind group B",
-    layout : cellPipeline.getBindGroupLayout(0),
+    layout : bindGroupLayout,
     entries : [{
       binding : 0,
       resource : { buffer : uniformBuffer }
     }, {
       binding : 1,
       resource : { buffer : cellStateStorage[1] }
+    }, {
+      binding : 2,
+      resource : { buffer : cellStateStorage[0] }
     }]
   })
 ];
 
+const pipelineLayout = device.createPipelineLayout({
+  label: "Cell Pipeline Layout",
+  bindGroupLayouts: [ bindGroupLayout ],
+});
+
+const cellPipeline = device.createRenderPipeline({
+  label : "Cell pipeline",
+  layout : pipelineLayout,
+  vertex : {
+    module : cellShaderModule,
+    entryPoint : "vertexMain",
+    buffers : [vertexBufferLayout]
+  },
+  fragment : {
+    module : cellShaderModule,
+    entryPoint : "fragmentMain",
+    targets : [{
+      format : canvasFormat
+    }]
+  }
+});
+
+const simulationPipeline = device.createComputePipeline({
+  label: "Simulation pipeline",
+  layout: pipelineLayout,
+  compute: {
+    module: simulationShaderModule,
+    entryPoint: "computeMain",
+  }
+});
+
 function updateGrid() {
+  const encoder = device.createCommandEncoder();
+
+  const computePass = encoder.beginComputePass();
+  computePass.setPipeline(simulationPipeline);
+  computePass.setBindGroup(0, bindGroups[step % 2]);
+  const workgroupCount = Math.ceil(GRID_SIZE / WORKGROUP_SIZE);
+  computePass.dispatchWorkgroups(workgroupCount, workgroupCount);
+  computePass.end();
+  
   step++;
 
   // Clear the screen
-  const encoder = device.createCommandEncoder();
   const pass = encoder.beginRenderPass({
     colorAttachments: [{
       view: context.getCurrentTexture().createView(),
