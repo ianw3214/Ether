@@ -113,9 +113,9 @@ const cellStateStorage = [
 ];
 
 // Mark every third cell of the grid as active
-for (let i = 0; i < cellStateArray.length; i += 3)
+for (let i = 0; i < cellStateArray.length; ++i)
 {
-  cellStateArray[i] = 1;
+  cellStateArray[i] = Math.random() > 0.6 ? 1 : 0;
 }
 device.queue.writeBuffer(cellStateStorage[0], 0, cellStateArray);
 device.queue.writeBuffer(cellStateStorage[1], 0, cellStateArray);
@@ -129,16 +129,35 @@ const simulationShaderModule = device.createShaderModule({
     @group(0) @binding(2) var<storage, read_write> cellStateOut: array<u32>;
 
     fn cellIndex(cell: vec2u) -> u32 {
-      return cell.y * u32(grid.x) + cell.x;
+      return (cell.y % u32(grid.y)) * u32(grid.x) + (cell.x % u32(grid.x));
+    }
+
+    fn cellActive(x: u32, y: u32) -> u32 {
+      return cellStateIn[cellIndex(vec2(x, y))];
     }
 
     @compute
     @workgroup_size(${WORKGROUP_SIZE}, ${WORKGROUP_SIZE})
     fn computeMain(@builtin(global_invocation_id) cell: vec3u) {
-      if (cellStateIn[cellIndex(cell.xy)] == 1) {
-        cellStateOut[cellIndex(cell.xy)] = 0;
-      } else {
-        cellStateOut[cellIndex(cell.xy)] = 1;  
+      let activeNeighbors = cellActive(cell.x + 1, cell.y + 1) +
+        cellActive(cell.x + 1, cell.y) +
+        cellActive(cell.x + 1, cell.y - 1) +
+        cellActive(cell.x, cell.y + 1) +
+        cellActive(cell.x, cell.y - 1) +
+        cellActive(cell.x - 1, cell.y + 1) +
+        cellActive(cell.x - 1, cell.y) +
+        cellActive(cell.x - 1, cell.y - 1);
+      let i = cellIndex(cell.xy);
+      switch activeNeighbors {
+        case 2: {
+          cellStateOut[i] = cellStateIn[i];
+        }
+        case 3: {
+          cellStateOut[i] = 1;
+        }
+        default: {
+          cellStateOut[i] = 0;
+        }
       }
     }
   `
