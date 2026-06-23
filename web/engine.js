@@ -12,6 +12,13 @@ const QUAD_VERTICES = new Float32Array([
 ]);
 
 // --------------------------------------------
+async function loadImageBitmap(url) {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    return await createImageBitmap(blob, { colorSpaceConversion: "none" });
+}
+
+// --------------------------------------------
 export default class Engine {
     constructor() {
         this.device = undefined;
@@ -20,6 +27,7 @@ export default class Engine {
 
         this.vertexBuffer = undefined;
         this.quadBindGroup = undefined;
+        this.textureBindGroup = undefined;
         this.quadPipeline = undefined;
     }
 
@@ -78,7 +86,7 @@ export default class Engine {
             label : "Quad shader",
             code : `
                 struct VertexInput {
-                    @location(0) pos : vec2f,
+                    @location(0) pos: vec2f,
                 };
 
                 struct QuadInfo {
@@ -86,23 +94,35 @@ export default class Engine {
                     scale: vec2f,
                 };
 
+                struct VertexOutput {
+                    @builtin(position) position: vec4f,
+                    @location(0) texCoord: vec2f,
+                };
+
                 @group(0) @binding(0) var<uniform> screenResolution: vec2f;
-                @group(0) @binding(1) var<uniform> quadInfo : QuadInfo;
+                @group(0) @binding(1) var<uniform> quadInfo: QuadInfo;
 
                 @vertex
-                fn vertexMain(input : VertexInput) -> @builtin(position) vec4f {
+                fn vertexMain(input : VertexInput) -> VertexOutput {
                     let worldPos = quadInfo.worldPosition + input.pos * quadInfo.scale;
-                    return vec4f(worldPos / screenResolution * 2.0, 0.0, 1.0);
+
+                    var vertexOutput: VertexOutput;
+                    vertexOutput.position = vec4f(worldPos / screenResolution * 2.0, 0.0, 1.0);
+                    vertexOutput.texCoord = vec2f(input.pos.x + 0.5, 0.5 - input.pos.y);
+                    return vertexOutput;
                 }
 
+                @group(1) @binding(0) var textureSampler: sampler;
+                @group(1) @binding(1) var textureData: texture_2d<f32>;
+
                 @fragment
-                fn fragmentMain() -> @location(0) vec4f {
-                    return vec4f(1, 0, 0, 1);
+                fn fragmentMain(fragmentInput: VertexOutput) -> @location(0) vec4f {
+                    return textureSample(textureData, textureSampler, fragmentInput.texCoord);
                 }
             `
         })
 
-        // Bind groups
+        // Quad vertex bind group
         const quadBindGroupLayout = this.device.createBindGroupLayout({
             label: "Quad Bind Group Layout",
             entries: [{
@@ -127,10 +147,55 @@ export default class Engine {
             }]
         });
 
+        // Texture
+        const url = "../resources/test.png";
+        const source = await loadImageBitmap(url);
+        const texture = this.device.createTexture({
+            label: url,
+            format: "rgba8unorm",
+            size: [source.width, source.height],
+            usage: GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_DST |
+                GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.device.queue.copyExternalImageToTexture(
+            { source, flipY: true },
+            { texture },
+            { width: source.width, height: source.height }
+        );
+        const sampler = this.device.createSampler({
+            addressModeU: "clamp-to-edge",
+            addressModeV: "clamp-to-edge",
+            magFilter: "nearest",
+        });
+        const textureBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Texture Bind Group Layout",
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.FRAGMENT,
+                sampler: { type: "filtering" }
+            }, {
+                binding: 1,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: { sampleType: "float", viewDimension: "2d" }
+            }]
+        });
+        this.textureBindGroup = this.device.createBindGroup({
+            label: "Texture Bind Group",
+            layout: textureBindGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: sampler
+            }, {
+                binding: 1,
+                resource: texture
+            }]
+        })
+
         // Pipeline
         const pipelineLayout = this.device.createPipelineLayout({
             label: "Quad Pipeline Layout",
-            bindGroupLayouts: [ quadBindGroupLayout ],
+            bindGroupLayouts: [ quadBindGroupLayout, textureBindGroupLayout ],
         });
         this.quadPipeline = this.device.createRenderPipeline({
             label: "Quad Pipeline",
@@ -172,6 +237,7 @@ export default class Engine {
         pass.setPipeline(this.quadPipeline);
         pass.setVertexBuffer(0, this.vertexBuffer);
         pass.setBindGroup(0, this.quadBindGroup);
+        pass.setBindGroup(1, this.textureBindGroup);    
 
         pass.draw(QUAD_VERTICES.length / 2);
 
