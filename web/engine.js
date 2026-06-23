@@ -3,12 +3,12 @@
 const canvas = document.querySelector("canvas");
 
 const QUAD_VERTICES = new Float32Array([
-    -1.0, -1.0,
-    1.0, -1.0,
-    1.0,  1.0,
-    -1.0, -1.0,
-    1.0,  1.0,
-    -1.0,  1.0,
+    -0.5, -0.5,
+    0.5, -0.5,
+    0.5,  0.5,
+    -0.5, -0.5,
+    0.5,  0.5,
+    -0.5,  0.5,
 ]);
 
 // --------------------------------------------
@@ -65,7 +65,7 @@ export default class Engine {
         });
         this.device.queue.writeBuffer(screenUniformBuffer, 0, screenUniformArray);
 
-        const uniformArray = new Float32Array([0, 0]);
+        const uniformArray = new Float32Array([0, 0, 50, 50]);
         const uniformBuffer = this.device.createBuffer({
             label : "Quad World Position Uniform",
             size : uniformArray.byteLength,
@@ -81,13 +81,18 @@ export default class Engine {
                     @location(0) pos : vec2f,
                 };
 
+                struct QuadInfo {
+                    worldPosition: vec2f,
+                    scale: vec2f,
+                };
+
                 @group(0) @binding(0) var<uniform> screenResolution: vec2f;
-                @group(0) @binding(1) var<uniform> worldPosition : vec2f;
+                @group(0) @binding(1) var<uniform> quadInfo : QuadInfo;
 
                 @vertex
                 fn vertexMain(input : VertexInput) -> @builtin(position) vec4f {
-                    let worldPos = worldPosition + input.pos;
-                    return vec4f(worldPos / screenResolution, 0.0, 1.0);
+                    let worldPos = quadInfo.worldPosition + input.pos * quadInfo.scale;
+                    return vec4f(worldPos / screenResolution * 2.0, 0.0, 1.0);
                 }
 
                 @fragment
@@ -143,6 +148,13 @@ export default class Engine {
                 }]
             }
         });
+    }
+
+    resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+        canvas.height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+        this.context.configure({ device: this.device, format: this.canvasFormat, alphaMode: 'opaque' });
     }
 
     render() {
