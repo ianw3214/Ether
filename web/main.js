@@ -8,4 +8,12 @@ await engineInstance.initialize();
 engineInstance.resize();
 window.addEventListener('resize', engineInstance.resize);
 
-engineInstance.render();
+function render() {
+    engineInstance.startFrame();
+    engineInstance.render(0, 0);
+    engineInstance.endFrame();
+
+    requestAnimationFrame(render);
+}
+
+requestAnimationFrame(render);

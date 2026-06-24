@@ -26,9 +26,13 @@ export default class Engine {
         this.canvasFormat = undefined;
 
         this.vertexBuffer = undefined;
+        this.quadUniformBuffer = undefined;
         this.quadBindGroup = undefined;
         this.textureBindGroup = undefined;
         this.quadPipeline = undefined;
+
+        this.encoder = undefined;
+        this.pass = undefined;
     }
 
     async initialize() {
@@ -74,12 +78,12 @@ export default class Engine {
         this.device.queue.writeBuffer(screenUniformBuffer, 0, screenUniformArray);
 
         const uniformArray = new Float32Array([0, 0, 50, 50]);
-        const uniformBuffer = this.device.createBuffer({
+        this.quadUniformBuffer = this.device.createBuffer({
             label : "Quad World Position Uniform",
             size : uniformArray.byteLength,
             usage : GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         })
-        this.device.queue.writeBuffer(uniformBuffer, 0, uniformArray);
+        this.device.queue.writeBuffer(this.quadUniformBuffer, 0, uniformArray);
 
         // Quad shader
         const quadShaderModule = this.device.createShaderModule({
@@ -143,7 +147,7 @@ export default class Engine {
                 resource: { buffer: screenUniformBuffer }
             }, {
                 binding: 1,
-                resource: { buffer: uniformBuffer }
+                resource: { buffer: this.quadUniformBuffer }
             }]
         });
 
@@ -222,26 +226,32 @@ export default class Engine {
         this.context.configure({ device: this.device, format: this.canvasFormat, alphaMode: 'opaque' });
     }
 
-    render() {
-        const encoder = this.device.createCommandEncoder();
-
-        const pass = encoder.beginRenderPass({
+    startFrame() {
+        this.encoder = this.device.createCommandEncoder();
+        this.pass = this.encoder.beginRenderPass({
             colorAttachments: [{
                 view: this.context.getCurrentTexture().createView(),
                 loadOp: "clear",
-                clearValue: { r : 0, g : 0, b : 0, a : 1 },
+                clearValue: { r: 0, g: 0, b: 0, a: 1 },
                 storeOp: "store",
             }],
         });
+        this.pass.setPipeline(this.quadPipeline);
+    }
 
-        pass.setPipeline(this.quadPipeline);
-        pass.setVertexBuffer(0, this.vertexBuffer);
-        pass.setBindGroup(0, this.quadBindGroup);
-        pass.setBindGroup(1, this.textureBindGroup);    
+    endFrame() {
+        this.pass.end();
+        this.device.queue.submit([this.encoder.finish()]);
+    }
 
-        pass.draw(QUAD_VERTICES.length / 2);
+    render(x, y) {
+        const uniformArray = new Float32Array([x, y, 50, 50]);
+        this.device.queue.writeBuffer(this.quadUniformBuffer, 0, uniformArray);
+        
+        this.pass.setVertexBuffer(0, this.vertexBuffer);
+        this.pass.setBindGroup(0, this.quadBindGroup);
+        this.pass.setBindGroup(1, this.textureBindGroup);    
 
-        pass.end();
-        this.device.queue.submit([encoder.finish()]);
+        this.pass.draw(QUAD_VERTICES.length / 2);
     }
 }
