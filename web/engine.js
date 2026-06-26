@@ -26,8 +26,8 @@ export default class Engine {
         this.canvasFormat = undefined;
 
         this.vertexBuffer = undefined;
-        this.quadUniformBuffer = undefined;
-        this.quadBindGroup = undefined;
+        this.quadBindGroupLayout = undefined;
+        this.screenUniformBuffer = undefined;
         this.textureBindGroup = undefined;
         this.quadPipeline = undefined;
 
@@ -69,21 +69,25 @@ export default class Engine {
                 shaderLocation : 0,
             }]
         };
+        this.quadBindGroupLayout = this.device.createBindGroupLayout({
+            label: "Quad Bind Group Layout",
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {}
+            }, {
+                binding: 1,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {}
+            }]
+        });
         const screenUniformArray = new Float32Array([960, 720]);
-        const screenUniformBuffer = this.device.createBuffer({
+        this.screenUniformBuffer = this.device.createBuffer({
             label: "Screen Resolution Uniform",
             size: screenUniformArray.byteLength,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
         });
-        this.device.queue.writeBuffer(screenUniformBuffer, 0, screenUniformArray);
-
-        const uniformArray = new Float32Array([0, 0, 50, 50]);
-        this.quadUniformBuffer = this.device.createBuffer({
-            label : "Quad World Position Uniform",
-            size : uniformArray.byteLength,
-            usage : GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        })
-        this.device.queue.writeBuffer(this.quadUniformBuffer, 0, uniformArray);
+        this.device.queue.writeBuffer(this.screenUniformBuffer, 0, screenUniformArray);
 
         // Quad shader
         const quadShaderModule = this.device.createShaderModule({
@@ -125,31 +129,6 @@ export default class Engine {
                 }
             `
         })
-
-        // Quad vertex bind group
-        const quadBindGroupLayout = this.device.createBindGroupLayout({
-            label: "Quad Bind Group Layout",
-            entries: [{
-                binding: 0,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: {}
-            }, {
-                binding: 1,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: {}
-            }]
-        });
-        this.quadBindGroup = this.device.createBindGroup({
-            label: "Quad Bind Group",
-            layout: quadBindGroupLayout,
-            entries: [{
-                binding: 0,
-                resource: { buffer: screenUniformBuffer }
-            }, {
-                binding: 1,
-                resource: { buffer: this.quadUniformBuffer }
-            }]
-        });
 
         // Texture
         const url = "../resources/test.png";
@@ -199,7 +178,7 @@ export default class Engine {
         // Pipeline
         const pipelineLayout = this.device.createPipelineLayout({
             label: "Quad Pipeline Layout",
-            bindGroupLayouts: [ quadBindGroupLayout, textureBindGroupLayout ],
+            bindGroupLayouts: [ this.quadBindGroupLayout, textureBindGroupLayout ],
         });
         this.quadPipeline = this.device.createRenderPipeline({
             label: "Quad Pipeline",
@@ -244,14 +223,44 @@ export default class Engine {
         this.device.queue.submit([this.encoder.finish()]);
     }
 
-    render(x, y) {
-        const uniformArray = new Float32Array([x, y, 50, 50]);
-        this.device.queue.writeBuffer(this.quadUniformBuffer, 0, uniformArray);
+    render(obj) {
+        // const uniformArray = new Float32Array([x, y, 50, 50]);
+        // this.device.queue.writeBuffer(obj.buffer, 0, obj.bufferValues);
         
         this.pass.setVertexBuffer(0, this.vertexBuffer);
-        this.pass.setBindGroup(0, this.quadBindGroup);
+        this.pass.setBindGroup(0, obj.bindGroup);
         this.pass.setBindGroup(1, this.textureBindGroup);    
 
         this.pass.draw(QUAD_VERTICES.length / 2);
+    }
+
+    createRenderObject(x, y) {
+        // Quad uniform buffer
+        const uniformArray = new Float32Array([x, y, 50, 50]);
+        const quadUniformBuffer = this.device.createBuffer({
+            label : "Quad World Position Uniform",
+            size : uniformArray.byteLength,
+            usage : GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        })
+        this.device.queue.writeBuffer(quadUniformBuffer, 0, uniformArray);
+
+        // Quad vertex bind group
+        const quadBindGroup = this.device.createBindGroup({
+            label: "Quad Bind Group",
+            layout: this.quadBindGroupLayout,
+            entries: [{
+                binding: 0,
+                resource: { buffer: this.screenUniformBuffer }
+            }, {
+                binding: 1,
+                resource: { buffer: quadUniformBuffer }
+            }]
+        });
+
+        return {
+            bufferValues: uniformArray,
+            buffer: quadUniformBuffer,
+            bindGroup: quadBindGroup,
+        };
     }
 }
