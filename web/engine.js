@@ -79,6 +79,10 @@ export default class Engine {
                 binding: 1,
                 visibility: GPUShaderStage.VERTEX,
                 buffer: {}
+            }, {
+                binding: 2,
+                visibility: GPUShaderStage.VERTEX,
+                buffer: {}
             }]
         });
         const screenUniformArray = new Float32Array([960, 720]);
@@ -107,16 +111,29 @@ export default class Engine {
                     @location(0) texCoord: vec2f,
                 };
 
+                struct TextureData {
+                    dimensions: vec2f,
+                    frame: f32,
+                };
+
                 @group(0) @binding(0) var<uniform> screenResolution: vec2f;
                 @group(0) @binding(1) var<uniform> quadInfo: QuadInfo;
+                @group(0) @binding(2) var<uniform> textureInfo: TextureData;
 
                 @vertex
                 fn vertexMain(input : VertexInput) -> VertexOutput {
                     let worldPos = quadInfo.worldPosition + input.pos * quadInfo.scale;
+                    let frameWidth = 1.0 / textureInfo.dimensions.x;
+                    let frameHeight = 1.0 / textureInfo.dimensions.y;
+                    let frameX = textureInfo.frame % textureInfo.dimensions.x;
+                    let frameY = trunc(textureInfo.frame / textureInfo.dimensions.y);
 
                     var vertexOutput: VertexOutput;
                     vertexOutput.position = vec4f(worldPos / screenResolution * 2.0, 0.0, 1.0);
-                    vertexOutput.texCoord = vec2f(input.pos.x + 0.5, 0.5 - input.pos.y);
+                    vertexOutput.texCoord = vec2f(
+                        (frameX + 0.5) * frameWidth + input.pos.x * frameWidth,
+                        (frameY + 0.5) * frameHeight + input.pos.y * frameHeight
+                    );
                     return vertexOutput;
                 }
 
@@ -241,8 +258,17 @@ export default class Engine {
             label : "Quad World Position Uniform",
             size : uniformArray.byteLength,
             usage : GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-        })
+        });
         this.device.queue.writeBuffer(quadUniformBuffer, 0, uniformArray);
+
+        // Texture coord uniform buffer
+        const textureArray = new Float32Array([ 1, 1, 0, 0 ]);
+        const textureUniformBuffer = this.device.createBuffer({
+            label: "Quad Texture Coord Uniform",
+            size: textureArray.byteLength,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        });
+        this.device.queue.writeBuffer(textureUniformBuffer, 0, textureArray);
 
         // Quad vertex bind group
         const quadBindGroup = this.device.createBindGroup({
@@ -254,12 +280,16 @@ export default class Engine {
             }, {
                 binding: 1,
                 resource: { buffer: quadUniformBuffer }
+            }, {
+                binding: 2,
+                resource: { buffer: textureUniformBuffer }
             }]
         });
 
         return {
             bufferValues: uniformArray,
             buffer: quadUniformBuffer,
+            textureBuffer: textureUniformBuffer,
             bindGroup: quadBindGroup,
         };
     }
