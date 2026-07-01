@@ -1,6 +1,7 @@
 "use strict";
 
 import Engine from "./engine.js"
+import Game from "./game.js"
 
 // Initialization
 var engineInstance = new Engine();
@@ -8,15 +9,21 @@ await engineInstance.initialize();
 engineInstance.resize();
 window.addEventListener('resize', engineInstance.resize);
 
-const renderObj = engineInstance.createRenderObject(0, 0);
-const renderObj2 = engineInstance.createRenderObject(100, 0);
+// Game initialization
+var gameInstance = new Game(engineInstance);
 
-function render() {
+let lastRender = 0;
+
+function render(timestamp) {
+    const delta = timestamp - lastRender;
+
+    gameInstance.update(delta);
+
     engineInstance.startFrame();
-    engineInstance.render(renderObj);
-    engineInstance.render(renderObj2);
+    gameInstance.render(engineInstance);
     engineInstance.endFrame();
 
+    lastRender = timestamp;
     requestAnimationFrame(render);
 }
 
